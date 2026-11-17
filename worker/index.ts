@@ -22,13 +22,14 @@ export default {
    if (!body || typeof body !== 'object' || Array.isArray(body)) return json({error:'Datos no válidos.'},400);
    if (request.method === 'POST' && url.pathname === '/api/items') {
     const name=field(body.name,80,true), quantity=field(body.quantity ?? '',40), note=field(body.note ?? '',160);
+    const brand=body.brand === undefined ? null : field(body.brand,60);
     const profile=field(body.profile,20,true), id=field(body.id,60,true);
     if (!profileIds.includes(profile) || !/^[a-zA-Z0-9-]{1,60}$/.test(id)) return json({error:'Perfil o identificador no válido.'},400);
     const normalized=normalize(name), productId=crypto.randomUUID();
     // The request ledger keeps retries idempotent even after a purchased row is cleared.
     const result = await env.DB.batch([
      env.DB.prepare('INSERT OR IGNORE INTO products(id,name,normalized,emoji) VALUES(?,?,?,?)').bind(productId,name,normalized,emojiFor(name)),
-     env.DB.prepare('INSERT OR IGNORE INTO items(id,product_id,profile_id,quantity,note) SELECT ?,id,?,?,? FROM products WHERE normalized=? AND NOT EXISTS(SELECT 1 FROM requests WHERE id=?)').bind(id,profile,quantity,note,normalized,id),
+     env.DB.prepare('INSERT OR IGNORE INTO items(id,product_id,profile_id,quantity,note,brand) SELECT ?,id,?,?,?,? FROM products WHERE normalized=? AND NOT EXISTS(SELECT 1 FROM requests WHERE id=?)').bind(id,profile,quantity,note,brand ?? '',normalized,id),
      env.DB.prepare("UPDATE products SET uses=uses+1,last_added=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE normalized=? AND changes()=1").bind(normalized),
      env.DB.prepare('INSERT OR IGNORE INTO requests(id) VALUES(?)').bind(id)
     ]);
@@ -50,7 +51,8 @@ export default {
     await env.DB.prepare("UPDATE items SET done=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(Number(body.done),match[1]).run();
    } else {
     const quantity=field(body.quantity ?? '',40), note=field(body.note ?? '',160);
-    await env.DB.prepare("UPDATE items SET quantity=?,note=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(quantity,note,match[1]).run();
+    const brand=body.brand === undefined ? null : field(body.brand,60);
+    await env.DB.prepare("UPDATE items SET quantity=?,note=?,brand=COALESCE(?,brand),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(quantity,note,brand,match[1]).run();
    }
    return json({ok:true});
   } catch (error) {
